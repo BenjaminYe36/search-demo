@@ -1,141 +1,129 @@
-import React from "react";
+import React, {useEffect, useState} from "react";
 import {FontAwesomeIcon} from '@fortawesome/react-fontawesome';
 import {faSearch} from '@fortawesome/free-solid-svg-icons';
 
-import './App.css';
+import './App.css'
+import TableData from "./TableData";
 
-class App extends React.Component {
-    constructor(props) {
-        super(props);
-        this.state = {
-            inputVal: "",
-            selectVal: "name",
-            isLoading: false,
-            searchResult: null,
-        };
-    }
+const App = () => {
+    // input box value
+    const [inputVal, setInputVal] = useState("");
+    // query that used for search
+    const [query, setQuery] = useState(null);
+    // ordering selection
+    const [selectVal, setSelectVal] = useState("");
+    const [isLoading, setIsLoading] = useState(false);
+    const [needNewSearch, setNeedNewSearch] = useState(false);
+    const [searchResult, setSearchResult] = useState(null);
+    // message object has the format of {type: "success" or "error", msg?: "..."}
+    const [message, setMessage] = useState(null);
 
-    getSearchResult = async () => {
-        try {
-            let url = "https://api.open5e.com/monsters/?search=" + this.state.inputVal +
-                '&ordering=' + this.state.selectVal;
-
-            this.setState({
-                isLoading: true,
-            });
-
-            let responsePromise = fetch(url);
-            let response = await responsePromise;
-
-            this.setState({
-                isLoading: false,
-            });
-
-            if (!response.ok) {
-                alert("Error! response not ok " + response.status);
-                return;
-            }
-
-            let parsedObject = await response.json();
-
-            if (parsedObject === null) {
-                alert("Error! response json should not be null");
-                return;
-            }
-
-            console.log(parsedObject);
-            this.setState({
-                searchResult: parsedObject,
-            });
-
-        } catch (e) {
-            alert("There was an error fetching from the api server.");
-            console.log(e);
-            this.setState({
-                isLoading: false,
-            });
+    const getSearchResult = () => {
+        const apiUrl = new URL("https://api.open5e.com/monsters");
+        apiUrl.searchParams.append("search", inputVal);
+        // only apply sorting if the user selects something other than default no sorting
+        if (selectVal.length > 0) {
+            apiUrl.searchParams.append("ordering", selectVal);
         }
-    }
+        // fetch the api endpoint to get search results
+        return fetch(apiUrl.href)
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`Response status is not ok, is ${response.status} instead`);
+                }
+                return response.json();
+            });
+    };
 
-    async componentDidUpdate(prevProps, prevState, snapshot) {
-        if (prevState.selectVal !== this.state.selectVal) {
-            await this.getSearchResult();
-        }
-    }
-
-    handleInputChange = (event) => {
-        this.setState({
-            inputVal: event.target.value,
-        });
-    }
-
-    handleSelectChange = async (event) => {
-        this.setState({
-            selectVal: event.target.value,
-        });
-    }
-
-    handleClick = async () => {
-        if (this.state.inputVal.trim() === "") {
-            alert("Search keyword can't be empty!");
+    // re-fetch api when the selected sorting order is changed
+    useEffect(() => {
+        // use boolean and clean up function to avoid potential (rare) race conditions
+        let active = true;
+        // exclude initial calls to useEffect, only fetch from API when later the query is set
+        if (!query || !needNewSearch) {
             return;
         }
-        await this.getSearchResult();
-    }
+        console.log("effect runs");
+        setMessage(null);
+        setIsLoading(true);
+        getSearchResult()
+            .then((json) => {
+                if (active) {
+                    setSearchResult(json);
+                    setMessage({type: "success"});
+                    setIsLoading(false);
+                }
+            })
+            .catch((e) => {
+                if (active) {
+                    console.log(e);
+                    setMessage({type: "error", msg: e.message});
+                }
+            })
+            .finally(() => {
+                setNeedNewSearch(false);
+            });
+        // clean up function
+        return () => {
+            active = false;
+        };
+    }, [selectVal, query, needNewSearch]);
 
-    render() {
-        return (
-            <div>
-                <nav className="navbar navbar-dark bg-primary">
-                    <span className="navbar-brand">Search Demo</span>
-                </nav>
-                <div className="input-group row p-2">
-                    <input type="text" className="form-control"
-                           placeholder="keyword for monster name"
-                           value={this.state.isLoading ? "Loading..." : this.state.inputVal}
-                           onChange={this.handleInputChange}/>
-                    <select value={this.state.selectVal} onChange={this.handleSelectChange}>
-                        <option value="name">Order By Name (ASC)</option>
-                        <option value="-name">Order By Name (DESC)</option>
-                    </select>
-                    <button className="input-group-btn btn btn-primary " onClick={this.handleClick}>
-                        <FontAwesomeIcon icon={faSearch}/>
-                    </button>
+    const handleInputChange = (event) => {
+        setInputVal(event.target.value);
+    };
+
+    const handleSelectChange = (event) => {
+        setSelectVal(event.target.value);
+        setNeedNewSearch(true);
+    };
+
+    const handleSearchClick = () => {
+        if (inputVal.trim() === "") {
+            setMessage({type: "error", msg: "Query string can't be empty, please enter some and search again."});
+            return;
+        }
+        // trigger useEffect that has clean up (cancel old requests),
+        // instead of calling async fetch in onClick, which could lead to race condition issues
+        setQuery(inputVal);
+        setNeedNewSearch(true);
+    };
+
+    return (
+        <div>
+            <nav className="navbar navbar-dark bg-darker-blue">
+                <span className="navbar-brand">Search Demo</span>
+            </nav>
+            <div className="inner-container">
+                <div className="row">
+                    <div className="col-md-6">
+                        <input type="text" className="form-control"
+                               placeholder="search keyword for monster name"
+                               value={inputVal}
+                               autoFocus
+                               onChange={handleInputChange}/>
+                    </div>
+                    <div className="col-md-3">
+                        <select className="form-control" value={selectVal} onChange={handleSelectChange}
+                                aria-label="select ordering">
+                            <option value="">No Specific Ordering</option>
+                            <option value="name">Order By Name (ASC)</option>
+                            <option value="-name">Order By Name (DESC)</option>
+                        </select>
+                    </div>
+                    <div className="col-md-3">
+                        <button className="btn btn-primary search-btn bg-darker-blue" onClick={handleSearchClick}
+                                type="button" aria-label="search button">
+                            <FontAwesomeIcon icon={faSearch}/>
+                        </button>
+                    </div>
                 </div>
-                <div>
-                    {this.state.searchResult === null ? null : (
-                        <div>
-                            {this.state.searchResult.count === 0 ? <span>Nothing found for this query</span> :
-                                <div>
-                                    <span>Showing {this.state.searchResult.count} result(s).</span>
-                                    <table className="table table-light">
-                                        <thead>
-                                        <tr>
-                                            <th scope="col">#</th>
-                                            <th scope="col">Name</th>
-                                            <th scope="col">Size</th>
-                                            <th scope="col">Type</th>
-                                        </tr>
-                                        </thead>
-                                        <tbody>
-                                        {this.state.searchResult.results.map((info, idx) =>
-                                            <tr>
-                                                <td>{idx + 1}</td>
-                                                <td>{info.name}</td>
-                                                <td>{info.size}</td>
-                                                <td>{info.type}</td>
-                                            </tr>
-                                        )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            }
-                        </div>
-                    )}
+                <div className="table-container">
+                    <TableData isLoading={isLoading} searchResult={searchResult} message={message}/>
                 </div>
             </div>
-        );
-    }
-}
+        </div>
+    );
+};
 
 export default App;
